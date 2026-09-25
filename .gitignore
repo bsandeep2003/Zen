@@ -1,0 +1,98 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env.bak
+
+# ─── Secrets & Environment ────────────────────────────────────────────────────
+# Keep .env.example (template), ignore real .env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# ─── Database & Storage ───────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+zen.db
+mem0_storage/
+
+# ─── Node / React ─────────────────────────────────────────────────────────────
+node_modules/
+/.pnp
+.pnp.js
+frontend/build/
+frontend/coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.yarn-integrity
+.npm/
+.pnpm-store/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+pids/
+*.pid
+*.seed
+
+# ─── OS artifacts ─────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─── IDEs & Editors ───────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# ─── Zen Agent (future) ───────────────────────────────────────────────────────
+# Local agent state — never commit these
+.zen/profile.db
+.zen/.session
+.zen/mem0_storage/
+# DO commit: .zen/config.json (project-level agent settings)

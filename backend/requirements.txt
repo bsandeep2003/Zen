@@ -1,0 +1,10 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+groq>=1.0.0
+sqlalchemy==2.0.35
+greenlet>=3.0.0
+aiosqlite==0.20.0
+python-dotenv==1.0.1
+pydantic==2.9.2
+httpx==0.27.2
+mem0ai>=2.0.0

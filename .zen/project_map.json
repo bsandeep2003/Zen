@@ -1,5 +1,5 @@
 {
-  "last_scanned": "2026-09-28T08:48:11.110261+00:00",
+  "last_scanned": "2026-09-28T12:55:39.384432+00:00",
   "file_tree": "\ud83d\udcc1 Zen/\n  \ud83d\udcc4 README.md\n  \ud83d\udcc4 setup.py\n  \ud83d\udcc4 test_sample_calculator.py\n  \ud83d\udcc4 zen.bat\n  \ud83d\udcc4 zen_cli.py\n  \ud83d\udcc1 backend/\n    \ud83d\udcc4 agent.py\n    \ud83d\udcc4 auth.py\n    \ud83d\udcc4 crud.py\n    \ud83d\udcc4 database.py\n    \ud83d\udcc4 main.py\n    \ud83d\udcc4 project_reader.py\n    \ud83d\udcc4 requirements.txt\n    \ud83d\udcc4 run_live_debug_demo.py\n    \ud83d\udcc4 sample_calculator.py\n    \ud83d\udcc4 test_backend_agent.py\n    \ud83d\udcc4 test_project_reader.py\n    \ud83d\udcc4 test_sample_calculator.py\n    \ud83d\udcc4 zen_chat.py\n    \ud83d\udcc1 agent/\n      \ud83d\udcc4 core.py\n      \ud83d\udcc4 safety.py\n      \ud83d\udcc4 session.py\n      \ud83d\udcc4 __init__.py\n    \ud83d\udcc1 codebase/\n      \ud83d\udcc4 indexer.py\n      \ud83d\udcc4 model.py\n      \ud83d\udcc4 scanner.py\n      \ud83d\udcc4 search.py",
   "entry_points": [
     "backend/main.py",
@@ -23,7 +23,7 @@
     "groq"
   ],
   "total_files": 75,
-  "total_lines": 27969,
+  "total_lines": 28026,
   "dependencies": [
     {
       "name": "fastapi",

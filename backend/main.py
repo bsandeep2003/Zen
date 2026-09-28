@@ -241,9 +241,9 @@ async def start_agent_session(req: StartSessionRequest, background_tasks: Backgr
     active_sess.add_subscriber(session_broadcaster)
     register_active_session(active_sess)
 
-    # Launch background loop
+    # Start immediately so the loop is not tied to the HTTP request lifecycle.
     engine = DebugAgentEngine(active_sess)
-    background_tasks.add_task(engine.run_debugging_loop)
+    asyncio.create_task(engine.run_debugging_loop())
 
     return {
         "session_id": session_id,
@@ -260,26 +260,33 @@ async def get_session_info(session_id: str, db: AsyncSession = Depends(get_db)):
     if not session_record:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    active = get_active_session(session_id)
     attempts = await crud.get_session_attempts(db, session_id)
+
+    attempt_payload = [
+        {
+            "attempt_number": a.attempt_number,
+            "state": a.state,
+            "diagnosis": a.diagnosis,
+            "patch_diff": a.patch_diff,
+            "command_run": a.command_run,
+            "stdout": a.stdout,
+            "stderr": a.stderr,
+            "exit_code": a.exit_code,
+        }
+        for a in attempts
+    ]
+    if active and active.attempts:
+        attempt_payload = active.attempts
+
     return {
         "session_id": session_record.session_id,
-        "project_path": session_record.project_path,
-        "initial_command": session_record.initial_command,
-        "status": session_record.status,
-        "total_attempts": session_record.total_attempts,
-        "attempts": [
-            {
-                "attempt_number": a.attempt_number,
-                "state": a.state,
-                "diagnosis": a.diagnosis,
-                "patch_diff": a.patch_diff,
-                "command_run": a.command_run,
-                "stdout": a.stdout,
-                "stderr": a.stderr,
-                "exit_code": a.exit_code,
-            }
-            for a in attempts
-        ],
+        "project_path": (active.project_path if active else session_record.project_path),
+        "initial_command": (active.initial_command if active else session_record.initial_command),
+        "status": active.status if active else session_record.status,
+        "state": active.state if active else session_record.status,
+        "total_attempts": active.current_attempt_number if active else session_record.total_attempts,
+        "attempts": attempt_payload,
     }
 
 
@@ -378,6 +385,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             "initial_command": active_sess.initial_command,
             "current_attempt": active_sess.current_attempt_number,
         })
+        for event in active_sess.event_log:
+            try:
+                await websocket.send_json(event)
+            except Exception:
+                break
     try:
         while True:
             data = await websocket.receive_text()

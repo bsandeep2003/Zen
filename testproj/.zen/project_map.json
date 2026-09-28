@@ -1,0 +1,14 @@
+{
+  "last_scanned": "2026-09-28T13:26:37.565354+00:00",
+  "file_tree": "\ud83d\udcc1 testproj/\n  \ud83d\udcc4 main.py",
+  "entry_points": [
+    "main.py"
+  ],
+  "config_files": [],
+  "test_files": [],
+  "primary_language": "Python",
+  "frameworks": [],
+  "total_files": 1,
+  "total_lines": 5,
+  "dependencies": []
+}

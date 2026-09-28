@@ -210,7 +210,7 @@ def cmd_fix(args):
         import urllib.parse
         q_proj = urllib.parse.quote_plus(project_path)
         q_cmd = urllib.parse.quote_plus(command)
-        dashboard_url = f"http://localhost:{frontend_port}?session={session_id}&project={q_proj}&command={q_cmd}&ws_port={backend_port}"
+        dashboard_url = f"http://localhost:{frontend_port}/workspace?session={session_id}&project={q_proj}&command={q_cmd}&ws_port={backend_port}"
         print()
         print_step("🌐", f"Live Dashboard: \033[4m{dashboard_url}\033[0m")
         try:
@@ -233,21 +233,23 @@ def cmd_fix(args):
                 sdata = sr.json()
                 status = sdata.get("status", "running")
                 attempts = sdata.get("attempts", [])
-                
-                if attempts:
-                    latest = attempts[-1]
-                    cur_state = latest.get("state", "")
-                    if cur_state != last_state:
-                        last_state = cur_state
-                        if cur_state == "observe":
-                            print_step("👁️ ", f"[Attempt {latest.get('attempt_number', 1)}] Observing command error...")
-                        elif cur_state == "diagnose":
-                            diag = latest.get("diagnosis", "Analyzing error context...")
-                            print_step("🔍", f"Diagnosing: {diag[:80]}...")
-                        elif cur_state == "patch":
-                            print_step("🛠️ ", "Applying LLM-generated patch...")
-                        elif cur_state == "verify":
-                            print_step("🧪", "Verifying fix by re-running command...")
+                cur_state = sdata.get("state") or ""
+
+                latest = attempts[-1] if attempts else {}
+                if cur_state and cur_state != last_state:
+                    last_state = cur_state
+                    attempt_n = latest.get("attempt_number") or sdata.get("total_attempts") or 1
+                    if cur_state == "observe":
+                        print_step("👁️ ", f"[Attempt {attempt_n}] Observing command error...")
+                    elif cur_state == "diagnose":
+                        diag = latest.get("diagnosis", "Analyzing error context...")
+                        print_step("🔍", f"Diagnosing: {diag[:80]}...")
+                    elif cur_state == "plan":
+                        print_step("📋", "Planning fix strategy...")
+                    elif cur_state == "patch":
+                        print_step("🛠️ ", "Applying LLM-generated patch...")
+                    elif cur_state == "verify":
+                        print_step("🧪", "Verifying fix by re-running command...")
 
                 if status == "success":
                     print()

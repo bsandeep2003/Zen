@@ -124,5 +124,8 @@ get_groq_client = get_client
 
 async def chat_completion(client, messages, tools=None, temperature=0.2, max_tokens=2000):
     res = await chat(messages, tools=tools, temperature=temperature, max_tokens=max_tokens)
-    return {"message": {"content": res["content"], "tool_calls": res["tool_calls"]}}
+    return {
+        "message": {"content": res["content"], "tool_calls": res["tool_calls"]},
+        "error": res.get("error"),
+    }
 

@@ -32,6 +32,7 @@ class ActiveSession:
         self.attempts: List[Dict[str, Any]] = []
         self.current_attempt_number = 0
         self.subscribers: List[Callable[[Dict[str, Any]], None]] = []
+        self.event_log: List[Dict[str, Any]] = []
 
     def add_subscriber(self, callback: Callable[[Dict[str, Any]], None]):
         self.subscribers.append(callback)
@@ -49,6 +50,9 @@ class ActiveSession:
             "attempt": self.current_attempt_number,
             "data": data,
         }
+        self.event_log.append(payload)
+        if len(self.event_log) > 250:
+            self.event_log = self.event_log[-250:]
         for sub in list(self.subscribers):
             try:
                 if asyncio.iscoroutinefunction(sub):

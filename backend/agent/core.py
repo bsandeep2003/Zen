@@ -9,6 +9,7 @@ to remember past fixes and skip redundant analysis.
 """
 import json
 import logging
+import subprocess
 import time
 from typing import Dict, Any, Optional, List
 
@@ -71,8 +72,23 @@ def execute_agent_tool(project_path: str, codebase: Any, func_name: str, args: d
 
         elif func_name == "run_command":
             cmd = args.get("command", "")
-            res = execute_command(cmd, cwd=project_path)
-            return res.to_dict()
+            completed = subprocess.run(
+                cmd,
+                shell=True,
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            return {
+                "success": completed.returncode == 0,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "exit_code": completed.returncode,
+            }
+
+        elif func_name == "get_git_diff":
+            return {"success": True, "diff": get_git_diff(project_path)}
 
         else:
             return {"success": False, "error": f"Unknown tool: {func_name}"}
@@ -102,6 +118,9 @@ def generate_plain_english_explanation(error_type: str, error_message: str, diag
     elif "NameError" in err_str:
         why = f"Undefined Variable/Function: {error_message.strip()}."
         fix = f"Defined the missing variable or imported the required definition in `{', '.join(modified_files) if modified_files else 'the source file'}`."
+    elif "AssertionError" in err_str:
+        why = f"Assertion Failed: A test expectation was not met. {error_message.strip()}."
+        fix = f"Fixed the logic in `{', '.join(modified_files) if modified_files else 'the source file'}` so the assertion passes."
     else:
         why = diagnosis if diagnosis else f"Execution failed with {error_type}: {error_message.strip()}"
         fix = f"Applied targeted patch in `{', '.join(modified_files) if modified_files else 'the codebase'}` to eliminate the error."
@@ -121,6 +140,16 @@ class DebugAgentEngine:
 
     async def run_debugging_loop(self):
         """Main autonomous loop with .zen/ memory integration."""
+        try:
+            return await self._run_debugging_loop()
+        except Exception as exc:
+            logger.exception("Debugging loop crashed")
+            self.session.status = "failed"
+            self.session.state = "failure"
+            await self.session.broadcast("failed", {"error": str(exc)})
+            return self.session.status
+
+    async def _run_debugging_loop(self):
         session = self.session
         await session.broadcast("agent_started", {"initial_command": session.initial_command})
 
@@ -243,7 +272,7 @@ class DebugAgentEngine:
                     "files_previously_modified": similar_fix.get("files_modified", []),
                 }
 
-            # ─── STATE 2 & 3: DIAGNOSE, PLAN & TOOL LOOP ───────────────────────
+            # ─── STATE 2: DIAGNOSE ──────────────────────────────────────────────
             session.state = "diagnose"
             await session.broadcast("state_change", {
                 "state": "diagnose",
@@ -266,23 +295,43 @@ class DebugAgentEngine:
 
             client = get_groq_client()
             chk = create_checkpoint(session.project_path, session.session_id)
-            
+
             patch_applied = False
             modified_files = []
             patch_diff_text = ""
             diagnosis_text = ""
+            plan_text = ""
 
-            # Multi-turn tool loop (up to 4 turns)
-            for turn in range(4):
+            # Multi-turn tool loop (read → patch). Duplicate assistant
+            # messages break Groq tool-calling, so append exactly once.
+            for turn in range(8):
                 response = await chat_completion(client, messages, tools=DEBUGGER_TOOLS)
                 assistant_msg = response["message"]
-                
-                diagnosis_text = assistant_msg.get("content") or diagnosis_text or "Analyzing trace and codebase context..."
-                tool_calls = assistant_msg.get("tool_calls", [])
+
+                if response.get("error"):
+                    await session.broadcast("llm_error", {"error": response["error"]})
+                    diagnosis_text = diagnosis_text or f"LLM error: {response['error']}"
+                    break
+
+                # Capture diagnosis/plan from LLM response
+                if assistant_msg.get("content"):
+                    diagnosis_text = assistant_msg.get("content")
+
+                tool_calls = assistant_msg.get("tool_calls", []) or []
 
                 if not tool_calls:
                     break
 
+                # ─── STATE 3: PLAN ─────────────────────────────────────────────
+                session.state = "plan"
+                await session.broadcast("state_change", {
+                    "state": "plan",
+                    "attempt": attempt_num,
+                    "diagnosis": diagnosis_text,
+                    "tool_calls_count": len(tool_calls),
+                })
+
+                # ─── STATE 4: PATCH ─────────────────────────────────────────────
                 session.state = "patch"
                 await session.broadcast("state_change", {
                     "state": "patch",
@@ -291,17 +340,16 @@ class DebugAgentEngine:
                     "tool_calls_count": len(tool_calls),
                 })
 
-                # Append assistant response to message history
                 messages.append({
                     "role": "assistant",
-                    "content": assistant_msg.get("content", ""),
+                    "content": assistant_msg.get("content", "") or None,
                     "tool_calls": [
                         {
                             "id": tc.get("id", f"call_{i}"),
                             "type": "function",
                             "function": {
                                 "name": tc.get("name") or tc.get("function", {}).get("name"),
-                                "arguments": json.dumps(tc.get("arguments", {})) if isinstance(tc.get("arguments"), dict) else tc.get("arguments", "{}"),
+                                "arguments": json.dumps(tc.get("arguments", {})) if isinstance(tc.get("arguments"), dict) else (tc.get("arguments") or "{}"),
                             },
                         }
                         for i, tc in enumerate(tool_calls)
@@ -311,11 +359,22 @@ class DebugAgentEngine:
                 for tc in tool_calls:
                     func_name = tc.get("name") or tc.get("function", {}).get("name")
                     raw_args = tc.get("arguments") or tc.get("function", {}).get("arguments", {})
-                    args = raw_args if isinstance(raw_args, dict) else json.loads(raw_args)
+                    if isinstance(raw_args, dict):
+                        args = raw_args
+                    else:
+                        try:
+                            args = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args = {}
+
+                    await session.broadcast("tool_call", {
+                        "tool": func_name,
+                        "file": args.get("file_path") or args.get("path", ""),
+                    })
 
                     tool_res = execute_agent_tool(session.project_path, session.codebase, func_name, args)
 
-                    if func_name == "apply_patch":
+                    if func_name in ("apply_patch", "create_file"):
                         if tool_res.get("success"):
                             patch_applied = True
                             rel_path = args.get("file_path") or args.get("path")
@@ -327,7 +386,10 @@ class DebugAgentEngine:
                                 "replace": args.get("replace"),
                             })
                         else:
-                            await session.broadcast("patch_failed", {"file": args.get("file_path"), "error": tool_res.get("error")})
+                            await session.broadcast("patch_failed", {
+                                "file": args.get("file_path") or args.get("path"),
+                                "error": tool_res.get("error"),
+                            })
 
                     # Append tool result to messages for next LLM turn
                     messages.append({
@@ -343,7 +405,7 @@ class DebugAgentEngine:
                 patch_diff_text = get_git_diff(session.project_path)
                 update_codebase_model(session.project_path, session.codebase, modified_files)
 
-            # ─── STATE 4: VERIFY ───────────────────────────────────────────────
+            # ─── STATE 5: VERIFY ───────────────────────────────────────────────
             session.state = "verify"
             await session.broadcast("state_change", {
                 "state": "verify",

@@ -115,8 +115,17 @@ export function useAgent(initialProjectPath = ".") {
 
         if (msg.event === "snapshot") {
           setLogs((prev) => [...prev, `⚡ Connected to session: ${msg.session_id} (Status: ${msg.status})`]);
+        } else if (msg.event === "agent_started") {
+          setLogs((prev) => [...prev, `🚀 Agent started: ${msg.data?.initial_command || ""}`]);
+          setAgentStatus("active");
         } else if (msg.event === "state_change") {
           setLogs((prev) => [...prev, `[STATE] Transitioned to ${msg.state.toUpperCase()} (Attempt #${msg.attempt || 1})`]);
+        } else if (msg.event === "tool_call") {
+          const tool = msg.data?.tool || "tool";
+          const file = msg.data?.file ? ` → ${msg.data.file}` : "";
+          setLogs((prev) => [...prev, `🔧 ${tool}${file}`]);
+        } else if (msg.event === "llm_error") {
+          setLogs((prev) => [...prev, `❌ LLM error: ${msg.data?.error}`]);
         } else if (msg.event === "memory_loaded") {
           setMemory(msg.data);
           if (msg.data.total_fixes > 0) {
@@ -131,6 +140,8 @@ export function useAgent(initialProjectPath = ".") {
           setLogs((prev) => [...prev, `[PATCH] Applied change to ${msg.data.file}`]);
           if (activeFile === msg.data.file) openFile(msg.data.file);
           refreshCodebase();
+        } else if (msg.event === "patch_failed") {
+          setLogs((prev) => [...prev, `[PATCH FAILED] ${msg.data?.file || ""}: ${msg.data?.error || "unknown error"}`]);
         } else if (msg.event === "memory_saved") {
           setMemorySaved(msg.data);
           setLogs((prev) => [...prev, `💾 ${msg.data.message}`]);
@@ -229,6 +240,42 @@ export function useAgent(initialProjectPath = ".") {
       attachSession();
     }
   }, [urlSession, connectWebSocket, projectPath, refreshCodebase]);
+
+  // Poll session so the dashboard still updates if WebSocket events were missed
+  useEffect(() => {
+    if (!activeSession) return undefined;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const sessionData = await api.getSessionInfo(activeSession);
+        if (stopped) return;
+        if (sessionData.status) setAgentStatus(sessionData.status);
+        if (sessionData.state) {
+          setAgentState(sessionData.status === "success" ? "success" : sessionData.state);
+        }
+        if (sessionData.attempts && sessionData.attempts.length > 0) {
+          setAttempts(sessionData.attempts);
+          const lastAtt = sessionData.attempts[sessionData.attempts.length - 1];
+          if (lastAtt.patch_diff) setLastDiff(lastAtt.patch_diff);
+        }
+        if (["success", "failed", "escalated", "stopped"].includes(sessionData.status)) {
+          refreshCodebase(sessionData.project_path || projectPath);
+          if (sessionData.project_path) {
+            api.getProjectMemory(sessionData.project_path).then(setMemory).catch(() => {});
+          }
+          clearInterval(id);
+        }
+      } catch (err) {
+        // Session endpoint may not be ready yet
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1500);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [activeSession, projectPath, refreshCodebase]);
 
   // Start autonomous debug session
   const startDebugSession = useCallback(async (command) => {

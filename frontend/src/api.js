@@ -1,7 +1,15 @@
 /**
  * api.js — API client for Zen Autonomous Debugging Agent.
  */
-const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+function resolveApiBase() {
+  if (typeof window !== "undefined") {
+    const port = new URLSearchParams(window.location.search).get("ws_port");
+    if (port) return `http://localhost:${port}`;
+  }
+  return process.env.REACT_APP_API_URL || "http://localhost:8000";
+}
+
+const API_BASE = resolveApiBase();
 
 async function parseError(res) {
   const text = await res.text();

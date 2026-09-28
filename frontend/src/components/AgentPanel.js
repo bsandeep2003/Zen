@@ -3,9 +3,13 @@ import React, { useState } from "react";
 const STATES = [
   { id: "observe", label: "Observe", icon: "👁️" },
   { id: "diagnose", label: "Diagnose", icon: "🔍" },
+  { id: "plan", label: "Plan", icon: "📋" },
   { id: "patch", label: "Patch", icon: "🛠️" },
   { id: "verify", label: "Verify", icon: "🧪" },
+  { id: "success", label: "Success", icon: "✅" },
 ];
+
+const STATE_ORDER = ["observe", "diagnose", "plan", "patch", "verify", "success"];
 
 export function AgentPanel({
   agentState,
@@ -28,6 +32,7 @@ export function AgentPanel({
   };
 
   const isSuccess = agentStatus === "success" || agentState === "success";
+  const isFailure = agentStatus === "failed" || agentStatus === "escalated" || agentState === "failure";
   const isActive = agentStatus === "active";
 
   return (
@@ -37,23 +42,22 @@ export function AgentPanel({
           <span className="agent-icon">🤖</span>
           <h2>Autonomous Agent</h2>
         </div>
-        <div className={`status-pill status-${agentStatus}`}>
-          {agentStatus.toUpperCase()}
+        <div className={`status-pill status-${agentStatus || "idle"}`}>
+          {(agentStatus || "idle").toUpperCase()}
         </div>
       </div>
 
       {/* State Machine Stepper */}
       <div className="state-stepper">
         {STATES.map((st, idx) => {
-          const stateOrder = ["observe", "diagnose", "patch", "verify"];
-          const currentIdx = stateOrder.indexOf(agentState);
-          const stepIdx = stateOrder.indexOf(st.id);
-          const isCompleted = isSuccess || (isActive && stepIdx < currentIdx);
-          const isActive2 = agentState === st.id && !isSuccess;
+          const currentIdx = STATE_ORDER.indexOf(agentState);
+          const stepIdx = STATE_ORDER.indexOf(st.id);
+          const isCompleted = isSuccess || (isActive && stepIdx < currentIdx && currentIdx !== -1);
+          const isActive2 = agentState === st.id && !isSuccess && !isFailure;
 
           return (
-            <div key={st.id} className={`step-item ${isActive2 ? "active" : ""} ${isCompleted ? "completed" : ""}`}>
-              <span className="step-icon">{isCompleted ? "✅" : st.icon}</span>
+            <div key={st.id} className={`step-item ${isActive2 ? "active" : ""} ${isCompleted ? "completed" : ""} ${isFailure && stepIdx <= currentIdx ? "failed" : ""}`}>
+              <span className="step-icon">{isCompleted ? "✅" : isFailure && stepIdx <= currentIdx ? "❌" : st.icon}</span>
               <span className="step-label">{st.label}</span>
             </div>
           );

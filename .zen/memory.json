@@ -1,0 +1,33 @@
+{
+  "project_path": "C:\\Users\\bsand\\Zen",
+  "created_at": "2026-09-28T05:26:29.184126+00:00",
+  "tech_stack": {
+    "primary_language": "Python",
+    "frameworks": [
+      "Fastapi",
+      "React",
+      "groq"
+    ],
+    "detected_at": "2026-09-28T08:48:11.112486+00:00"
+  },
+  "known_patterns": [],
+  "context_notes": [
+    {
+      "note": "Fixed RuntimeError in backend/sample_calculator.py: Applied targeted patch in `backend/sample_calculator.py` to eliminate the error.",
+      "added_at": "2026-09-28T05:30:35.803036+00:00"
+    },
+    {
+      "note": "Fixed RuntimeError in backend/sample_calculator.py: Applied targeted patch in `backend/sample_calculator.py` to eliminate the error.",
+      "added_at": "2026-09-28T05:34:55.375519+00:00"
+    },
+    {
+      "note": "Fixed RuntimeError in backend/sample_calculator.py: Applied targeted patch in `backend/sample_calculator.py` to eliminate the error.",
+      "added_at": "2026-09-28T05:53:01.268002+00:00"
+    },
+    {
+      "note": "Fixed RuntimeError in backend/sample_calculator.py: Applied targeted patch in `backend/sample_calculator.py` to eliminate the error.",
+      "added_at": "2026-09-28T05:55:37.430614+00:00"
+    }
+  ],
+  "updated_at": "2026-09-28T08:48:11.113283+00:00"
+}

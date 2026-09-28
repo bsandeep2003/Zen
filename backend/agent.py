@@ -124,7 +124,7 @@ def _truncate_code(code: str) -> str:
     )
 
 
-def _build_system_prompt(profile: dict, memories: list[str]) -> str:
+def _build_system_prompt(profile: dict, memories: list[str], project_context: str = "") -> str:
     difficulty_labels = {1: "beginner", 2: "elementary", 3: "intermediate", 4: "advanced", 5: "expert"}
     level = difficulty_labels.get(profile.get("current_difficulty", 1), "beginner")
     # Cap at 3 each — beyond that the LLM dilutes focus
@@ -148,10 +148,14 @@ def _build_system_prompt(profile: dict, memories: list[str]) -> str:
     if total_subs > 0:
         stats_block = f"Stats: {total_subs} subs, avg {avg_score:.0f}/100, level={level}\n"
 
+    project_block = ""
+    if project_context:
+        project_block = f"Project Awareness:\n{project_context.strip()}\n"
+
     # ── compact JSON schema (saves ~120 tokens vs verbose version) ──
     return f"""Zen: {level}-level code mentor. Respond ONLY with this JSON:
 {{"score":0-100,"summary":"2-3 sentences","mistakes":["snake_case_tags"],"feedback":"markdown","hint":"one actionable tip","test_cases":[{{"input":"","expected":"","explanation":""}}],"next_challenge":"short description","memory_insight":"one sentence about dev habit"}}
-{mistake_block}{memory_block}{stats_block}No markdown fences. JSON only."""
+{project_block}{mistake_block}{memory_block}{stats_block}No markdown fences. JSON only."""
 
 
 # ─────────────────────────────────────────────
@@ -163,18 +167,29 @@ async def analyse_code(
     language: str,
     task_description: str,
     profile: dict,
+    project_context: str = "",
+    project_path: str = "",
 ) -> dict:
     """
     Sends submission to Groq with Mem0 memories & returns structured JSON feedback.
-    Also saves new memory insights into Mem0.
+    Also saves new memory insights into Mem0. Supports Layer 1 Project Awareness.
     """
     session_id = profile.get("session_id", "default")
     
     # 1. Fetch Mem0 memories for this developer
     memories = get_user_memories(session_id)
 
-    # 2. Build system prompt with Mem0 context
-    system_prompt = _build_system_prompt(profile, memories)
+    # 2. Build Layer 1 Project Context if path provided and context not pre-built
+    if project_path and not project_context:
+        try:
+            from project_reader import scan_project, build_llm_project_context
+            proj_summary = scan_project(project_path)
+            project_context = build_llm_project_context(proj_summary)
+        except Exception as e:
+            print(f"Notice: Failed to build project context ({e})")
+
+    # 3. Build system prompt with Mem0 + Project context
+    system_prompt = _build_system_prompt(profile, memories, project_context=project_context)
 
     safe_code = _truncate_code(code)
     task_line = task_description.strip() if task_description.strip() else "general review"

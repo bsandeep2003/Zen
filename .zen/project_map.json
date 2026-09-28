@@ -1,0 +1,129 @@
+{
+  "last_scanned": "2026-09-28T08:48:11.110261+00:00",
+  "file_tree": "\ud83d\udcc1 Zen/\n  \ud83d\udcc4 README.md\n  \ud83d\udcc4 setup.py\n  \ud83d\udcc4 test_sample_calculator.py\n  \ud83d\udcc4 zen.bat\n  \ud83d\udcc4 zen_cli.py\n  \ud83d\udcc1 backend/\n    \ud83d\udcc4 agent.py\n    \ud83d\udcc4 auth.py\n    \ud83d\udcc4 crud.py\n    \ud83d\udcc4 database.py\n    \ud83d\udcc4 main.py\n    \ud83d\udcc4 project_reader.py\n    \ud83d\udcc4 requirements.txt\n    \ud83d\udcc4 run_live_debug_demo.py\n    \ud83d\udcc4 sample_calculator.py\n    \ud83d\udcc4 test_backend_agent.py\n    \ud83d\udcc4 test_project_reader.py\n    \ud83d\udcc4 test_sample_calculator.py\n    \ud83d\udcc4 zen_chat.py\n    \ud83d\udcc1 agent/\n      \ud83d\udcc4 core.py\n      \ud83d\udcc4 safety.py\n      \ud83d\udcc4 session.py\n      \ud83d\udcc4 __init__.py\n    \ud83d\udcc1 codebase/\n      \ud83d\udcc4 indexer.py\n      \ud83d\udcc4 model.py\n      \ud83d\udcc4 scanner.py\n      \ud83d\udcc4 search.py",
+  "entry_points": [
+    "backend/main.py",
+    "frontend/src/index.js"
+  ],
+  "config_files": [
+    "setup.py",
+    "backend/requirements.txt",
+    "frontend/package.json"
+  ],
+  "test_files": [
+    "test_sample_calculator.py",
+    "backend/test_backend_agent.py",
+    "backend/test_project_reader.py",
+    "backend/test_sample_calculator.py"
+  ],
+  "primary_language": "Python",
+  "frameworks": [
+    "Fastapi",
+    "React",
+    "groq"
+  ],
+  "total_files": 75,
+  "total_lines": 27969,
+  "dependencies": [
+    {
+      "name": "fastapi",
+      "version": "0.115.0",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "uvicorn[standard]",
+      "version": "0.30.6",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "groq",
+      "version": "1.0.0",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "sqlalchemy",
+      "version": "2.0.35",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "greenlet",
+      "version": "3.0.0",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "aiosqlite",
+      "version": "0.20.0",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.0.1",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "pydantic",
+      "version": "2.9.2",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "httpx",
+      "version": "0.27.2",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "mem0ai",
+      "version": "2.0.0",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "PyJWT",
+      "version": "2.8.0",
+      "source": "requirements.txt"
+    },
+    {
+      "name": "@monaco-editor/react",
+      "version": "^4.7.0",
+      "source": "package.json"
+    },
+    {
+      "name": "@testing-library/dom",
+      "version": "^10.4.2",
+      "source": "package.json"
+    },
+    {
+      "name": "@testing-library/jest-dom",
+      "version": "^6.9.1",
+      "source": "package.json"
+    },
+    {
+      "name": "@testing-library/react",
+      "version": "^16.3.3",
+      "source": "package.json"
+    },
+    {
+      "name": "@testing-library/user-event",
+      "version": "^13.5.0",
+      "source": "package.json"
+    },
+    {
+      "name": "axios",
+      "version": "^1.20.0",
+      "source": "package.json"
+    },
+    {
+      "name": "react",
+      "version": "^19.3.0",
+      "source": "package.json"
+    },
+    {
+      "name": "react-dom",
+      "version": "^19.3.0",
+      "source": "package.json"
+    },
+    {
+      "name": "react-markdown",
+      "version": "^10.1.0",
+      "source": "package.json"
+    }
+  ]
+}

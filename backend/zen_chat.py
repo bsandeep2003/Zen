@@ -1,7 +1,8 @@
 """
-zen_chat.py — Conversational Zen agent + Mem0 memory graph (loads agent.py explicitly).
+zen_chat.py — Conversational Zen agent + Mem0 memory graph.
 
-The `agent/` package shadows `agent.py`; this module loads the legacy learning agent file by path.
+This module wraps the legacy learning agent and exposes a stable memory API for the
+chat UI and graph page. It gracefully falls back when Mem0 is unavailable.
 """
 import importlib.util
 import os
@@ -132,7 +133,7 @@ async def chat_with_zen(user_id: str, message: str, history=None) -> dict:
     memory_context = ""
     if memories:
         memory_context = "Things you remember about this user:\n" + "\n".join(
-            f"- {m}" for m in memories[:8]
+            f"- {m['text']}" for m in memories[:8]
         )
 
     messages = [{"role": "system", "content": ZEN_CHAT_SYSTEM}]
@@ -168,7 +169,10 @@ async def chat_with_zen(user_id: str, message: str, history=None) -> dict:
         reply = (response.choices[0].message.content or "").strip()
     except Exception as err:
         print(f"Zen chat error: {err}")
-        raise
+        return {
+            "reply": "I hit a temporary issue while generating the response. Please try again.",
+            "memories_used": len(memories),
+        }
 
     lower = message.lower()
     triggers = ("my name is", "i am", "i'm", "remember that", "i prefer", "i like", "i work")

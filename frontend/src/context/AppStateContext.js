@@ -8,16 +8,21 @@ const defaultState = {
   chatMessages: [],
   chatInput: "",
   workspace: {
-    activeFile: null,
-    fileContent: "",
-    logs: [],
+    projectPath: ".",
+    codebase: null,
+    activeSession: null,
     agentState: "idle",
     agentStatus: "idle",
+    logs: [],
+    attempts: [],
+    activeFile: null,
+    fileContent: "",
+    fileSaving: false,
     lastDiff: "",
-    explanation: null,
     memory: null,
     strategy: null,
     memorySaved: null,
+    explanation: null,
   },
 };
 
@@ -27,7 +32,11 @@ export function AppStateProvider({ children }) {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState;
       const parsed = JSON.parse(raw);
-      return { ...defaultState, ...parsed, workspace: { ...defaultState.workspace, ...(parsed.workspace || {}) } };
+      return {
+        ...defaultState,
+        ...parsed,
+        workspace: { ...defaultState.workspace, ...(parsed.workspace || {}) },
+      };
     } catch {
       return defaultState;
     }
@@ -48,7 +57,10 @@ export function AppStateProvider({ children }) {
   const updateWorkspace = useCallback((patch) => {
     setState((prev) => ({
       ...prev,
-      workspace: { ...prev.workspace, ...patch },
+      workspace: {
+        ...prev.workspace,
+        ...patch,
+      },
     }));
   }, []);
 

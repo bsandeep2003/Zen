@@ -1,33 +1,57 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "../api";
+import { useAppState } from "../context/AppStateContext";
 
 export function useAgent(initialProjectPath = ".") {
+  const { state, updateWorkspace } = useAppState();
+  const workspaceState = state.workspace || {};
+
   // Parse URL params for CLI-triggered sessions
   const urlParams = new URLSearchParams(window.location.search);
   const urlProject = urlParams.get("project") || initialProjectPath;
   const urlCommand = urlParams.get("command") || "";
   const urlSession = urlParams.get("session") || "";
 
-  const [projectPath, setProjectPath] = useState(urlProject);
-  const [codebase, setCodebase] = useState(null);
-  const [activeSession, setActiveSession] = useState(urlSession || null);
-  const [agentState, setAgentState] = useState("idle"); // idle | observe | diagnose | patch | verify | success | failure
-  const [agentStatus, setAgentStatus] = useState("idle");
-  const [logs, setLogs] = useState([]);
-  const [attempts, setAttempts] = useState([]);
-  const [activeFile, setActiveFile] = useState(null);
-  const [fileContent, setFileContent] = useState("");
+  // Initialize from persisted state or URL params
+  const [projectPath, setProjectPath] = useState(workspaceState.projectPath || urlProject);
+  const [codebase, setCo debase] = useState(workspaceState.codebase || null);
+  const [activeSession, setActiveSession] = useState(workspaceState.activeSession || urlSession || null);
+  const [agentState, setAgentState] = useState(workspaceState.agentState || "idle");
+  const [agentStatus, setAgentStatus] = useState(workspaceState.agentStatus || "idle");
+  const [logs, setLogs] = useState(workspaceState.logs || []);
+  const [attempts, setAttempts] = useState(workspaceState.attempts || []);
+  const [activeFile, setActiveFile] = useState(workspaceState.activeFile || null);
+  const [fileContent, setFileContent] = useState(workspaceState.fileContent || "");
   const [fileSaving, setFileSaving] = useState(false);
-  const [lastDiff, setLastDiff] = useState("");
-
-  // Memory, Strategy & Plain English Explanation state
-  const [memory, setMemory] = useState(null);
-  const [strategy, setStrategy] = useState(null);
-  const [memorySaved, setMemorySaved] = useState(null);
-  const [explanation, setExplanation] = useState(null);
+  const [lastDiff, setLastDiff] = useState(workspaceState.lastDiff || "");
+  const [memory, setMemory] = useState(workspaceState.memory || null);
+  const [strategy, setStrategy] = useState(workspaceState.strategy || null);
+  const [memorySaved, setMemorySaved] = useState(workspaceState.memorySaved || null);
+  const [explanation, setExplanation] = useState(workspaceState.explanation || null);
 
   const wsRef = useRef(null);
   const autoStartedRef = useRef(false);
+
+  // Sync all state to AppStateContext whenever it changes
+  useEffect(() => {
+    updateWorkspace({
+      projectPath,
+      codebase,
+      activeSession,
+      agentState,
+      agentStatus,
+      logs,
+      attempts,
+      activeFile,
+      fileContent,
+      fileSaving,
+      lastDiff,
+      memory,
+      strategy,
+      memorySaved,
+      explanation,
+    });
+  }, [projectPath, codebase, activeSession, agentState, agentStatus, logs, attempts, activeFile, fileContent, fileSaving, lastDiff, memory, strategy, memorySaved, explanation, updateWorkspace]);
 
   // Load codebase model
   const refreshCodebase = useCallback(async (path = projectPath) => {
@@ -100,7 +124,6 @@ export function useAgent(initialProjectPath = ".") {
     if (wsRef.current) {
       wsRef.current.close();
     }
-    // Use ws_port from URL params (passed by CLI), fallback to REACT_APP_WS_URL, then default to ws://localhost:8000
     const urlParams = new URLSearchParams(window.location.search);
     const wsPort = urlParams.get("ws_port");
     const wsBase = wsPort ? `ws://localhost:${wsPort}` : (process.env.REACT_APP_WS_URL || "ws://localhost:8000");
@@ -227,9 +250,7 @@ export function useAgent(initialProjectPath = ".") {
               }
               setLogs(restoredLogs);
             }
-            // Connect WS for any live updates
             connectWebSocket(urlSession);
-            // Refresh memory and codebase
             api.getProjectMemory(sessionData.project_path || projectPath).then(setMemory).catch(() => {});
             refreshCodebase(sessionData.project_path || projectPath);
           }

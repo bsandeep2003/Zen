@@ -1,7 +1,8 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../context/AuthContext";
+import { useAppState } from "../context/AppStateContext";
 import { sendChatMessage } from "../api";
 import { MemoryBankSidebar } from "../components/MemoryBankSidebar";
 
@@ -13,11 +14,22 @@ const QUICK_PROMPTS = [
 
 export default function ChatPage() {
   const { token } = useAuth();
+  const { state, setChatMessages, setChatInput } = useAppState();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const listRef = useRef(null);
+
+  const messages = state.chatMessages || [];
+  const input = state.chatInput || "";
+
+  // Auto-scroll to bottom when messages update
+  useEffect(() => {
+    if (listRef.current) {
+      setTimeout(() => {
+        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+      }, 100);
+    }
+  }, [messages]);
 
   const send = async (text) => {
     const trimmed = text.trim();
@@ -25,24 +37,21 @@ export default function ChatPage() {
 
     const userMsg = { role: "user", content: trimmed };
     const nextHistory = [...messages, userMsg];
-    setMessages(nextHistory);
-    setInput("");
+    setChatMessages(nextHistory);
+    setChatInput("");
     setLoading(true);
 
     try {
       const history = messages.map(({ role, content }) => ({ role, content }));
       const { reply } = await sendChatMessage(token, trimmed, history);
-      setMessages([...nextHistory, { role: "assistant", content: reply }]);
+      setChatMessages([...nextHistory, { role: "assistant", content: reply }]);
     } catch (err) {
-      setMessages([
+      setChatMessages([
         ...nextHistory,
         { role: "assistant", content: `Sorry — ${err.message || "something went wrong"}.` },
       ]);
     } finally {
       setLoading(false);
-      requestAnimationFrame(() => {
-        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-      });
     }
   };
 
@@ -122,7 +131,7 @@ export default function ChatPage() {
             type="text"
             placeholder="Message Zen…"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setChatInput(e.target.value)}
             disabled={loading}
           />
           <button type="submit" disabled={loading || !input.trim()} aria-label="Send">

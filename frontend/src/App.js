@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { BrowserRouter, Navigate, Route, Routes, useSearchParams } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { AppStateProvider } from "./context/AppStateContext";
@@ -13,17 +13,11 @@ import "./styles/zen-agent.css";
 
 function HomeOrWorkspace() {
   const [params] = useSearchParams();
-  const hasWorkspaceParams = ["session", "command", "project", "ws_port"].some(
+  const workspaceLaunch = ["session", "command", "project", "ws_port"].some(
     (name) => params.has(name) && params.get(name)
   );
 
-  useEffect(() => {
-    if (hasWorkspaceParams) {
-      window.history.replaceState(null, "", `/workspace?${params.toString()}`);
-    }
-  }, [hasWorkspaceParams, params]);
-
-  if (hasWorkspaceParams) {
+  if (workspaceLaunch) {
     return <Navigate to={`/workspace?${params.toString()}`} replace />;
   }
 

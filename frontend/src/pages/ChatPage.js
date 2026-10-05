@@ -1,9 +1,9 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../context/AuthContext";
 import { useAppState } from "../context/AppStateContext";
-import { sendChatMessage } from "../api";
+import { sendChatMessage, saveMemory } from "../api";
 import { MemoryBankSidebar } from "../components/MemoryBankSidebar";
 
 const QUICK_PROMPTS = [
@@ -19,8 +19,8 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const listRef = useRef(null);
 
-  const messages = state.chatMessages || [];
-  const input = state.chatInput || "";
+  const messages = useMemo(() => state.chatMessages || [], [state.chatMessages]);
+  const input = useMemo(() => state.chatInput || "", [state.chatInput]);
 
   // Auto-scroll to bottom when messages update
   useEffect(() => {
@@ -30,6 +30,18 @@ export default function ChatPage() {
       }, 100);
     }
   }, [messages]);
+
+  // Persist chat messages to backend whenever they change
+  useEffect(() => {
+    if (messages.length > 0 && token) {
+      const userMessages = messages.filter((m) => m.role === "user").map((m) => m.content);
+      if (userMessages.length > 0) {
+        saveMemory(token, { conversations: userMessages }).catch((err) => {
+          console.warn("Failed to save memory:", err);
+        });
+      }
+    }
+  }, [messages, token]);
 
   const send = async (text) => {
     const trimmed = text.trim();

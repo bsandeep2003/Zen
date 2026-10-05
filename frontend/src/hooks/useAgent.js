@@ -14,7 +14,7 @@ export function useAgent(initialProjectPath = ".") {
 
   // Initialize from persisted state or URL params
   const [projectPath, setProjectPath] = useState(workspaceState.projectPath || urlProject);
-  const [codebase, setCo debase] = useState(workspaceState.codebase || null);
+  const [codebase, setCodebase] = useState(workspaceState.codebase || null);
   const [activeSession, setActiveSession] = useState(workspaceState.activeSession || urlSession || null);
   const [agentState, setAgentState] = useState(workspaceState.agentState || "idle");
   const [agentStatus, setAgentStatus] = useState(workspaceState.agentStatus || "idle");

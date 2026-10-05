@@ -19,6 +19,7 @@ from terminal.executor import execute_command
 from tools.filesystem import list_files, read_file, write_file
 from tools.patch import apply_patch
 from tools.git import create_checkpoint, rollback_checkpoint, get_git_diff
+from tools.checkpoint import FileCheckpoint
 from llm.client import get_groq_client, chat_completion
 from llm.prompts import SYSTEM_PROMPT_AGENT, DEBUGGER_TOOLS
 from llm.context import build_agent_context
@@ -78,6 +79,8 @@ def execute_agent_tool(project_path: str, codebase: Any, func_name: str, args: d
                 cwd=project_path,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=60,
             )
             return {
@@ -294,7 +297,9 @@ class DebugAgentEngine:
             ]
 
             client = get_groq_client()
-            chk = create_checkpoint(session.project_path, session.session_id)
+            # Snapshot every file this attempt modifies, so a patch that fails
+            # verification can be undone instead of compounding.
+            checkpoint = FileCheckpoint(session.project_path, session.session_id)
 
             patch_applied = False
             modified_files = []
@@ -371,6 +376,12 @@ class DebugAgentEngine:
                         "tool": func_name,
                         "file": args.get("file_path") or args.get("path", ""),
                     })
+
+                    # Capture original contents BEFORE the write, so it can be undone.
+                    if func_name in ("apply_patch", "create_file"):
+                        target = args.get("file_path") or args.get("path")
+                        if target:
+                            checkpoint.capture([target])
 
                     tool_res = execute_agent_tool(session.project_path, session.codebase, func_name, args)
 
@@ -496,11 +507,24 @@ class DebugAgentEngine:
                 })
                 break
             else:
+                # The patch did not fix it. Undo this attempt's changes so the
+                # next attempt starts from the last known state instead of
+                # building on a broken one.
+                restored = checkpoint.restore()
+                if restored:
+                    await session.broadcast("patch_rolled_back", {
+                        "attempt": attempt_num,
+                        "files": restored,
+                        "reason": "verification failed",
+                    })
+                    update_codebase_model(session.project_path, session.codebase, restored)
+
                 await session.broadcast("verification_failed", {
                     "attempt": attempt_num,
                     "exit_code": verify_res.exit_code,
                     "why_failed": explanation["why_failed"],
                     "stderr": verify_res.stderr,
+                    "rolled_back": restored,
                 })
 
         return session.status

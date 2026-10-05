@@ -15,7 +15,8 @@ export function useAgent(initialProjectPath = ".") {
   const wsRef = useRef(null);
   const autoStartedRef = useRef(false);
 
-  // Use persisted state from AppStateContext as source of truth
+  // Use persisted state from AppStateContext as source of truth, falling back
+  // to the ?project= query param the CLI passes when it launches a session.
   const projectPath = workspaceState.projectPath || urlProject;
   const codebase = workspaceState.codebase || null;
   const activeSession = workspaceState.activeSession || urlSession || null;
@@ -340,6 +341,12 @@ export function useAgent(initialProjectPath = ".") {
           const sessionData = await api.getSessionInfo(urlSession);
           if (sessionData) {
             setActiveSession(urlSession);
+            // Persist the real project dir. The URL param is lost as soon as
+            // the user visits another route, and projectPath would fall back
+            // to "." — reverting the workspace to the Zen repo's own files.
+            if (sessionData.project_path) {
+              setProjectPath(sessionData.project_path);
+            }
             setAgentStatus(sessionData.status);
             setAgentState(
               sessionData.status === "success" ? "success" : "observe"
@@ -397,6 +404,7 @@ export function useAgent(initialProjectPath = ".") {
     projectPath,
     refreshCodebase,
     setActiveSession,
+    setProjectPath,
     setAgentStatus,
     setAgentState,
     setAttempts,
@@ -431,6 +439,7 @@ export function useAgent(initialProjectPath = ".") {
             sessionData.status
           )
         ) {
+          if (sessionData.project_path) setProjectPath(sessionData.project_path);
           refreshCodebase(sessionData.project_path || projectPath);
           if (sessionData.project_path) {
             api
@@ -454,6 +463,7 @@ export function useAgent(initialProjectPath = ".") {
     activeSession,
     projectPath,
     refreshCodebase,
+    setProjectPath,
     setAgentStatus,
     setAgentState,
     setAttempts,
@@ -477,6 +487,8 @@ export function useAgent(initialProjectPath = ".") {
 
         const res = await api.startAgentSession(projectPath, command);
         setActiveSession(res.session_id);
+        // Pin the project this run targets so it survives route changes.
+        if (res.project_path) setProjectPath(res.project_path);
         connectWebSocket(res.session_id);
       } catch (err) {
         console.error("Failed to start debug session:", err);
@@ -497,6 +509,7 @@ export function useAgent(initialProjectPath = ".") {
       setExplanation,
       setLogs,
       setActiveSession,
+      setProjectPath,
     ]
   );
 

@@ -15,6 +15,8 @@ import re
 from groq import AsyncGroq
 from dotenv import load_dotenv
 
+from memory.chat_store import get_chat_store
+
 load_dotenv()
 
 _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY", ""))
@@ -27,21 +29,23 @@ MEM0_API_KEY = os.getenv("MEM0_API_KEY", "").strip()
 
 _memory_client = None
 
-def _get_memory_client():
-    global _memory_client
-    if _memory_client is not None:
-        return _memory_client
+def _fresh_memory_client():
+    """Build a memory client, or fall back to the durable SQLite store.
 
+    Returns either a mem0 client or a SqliteMemoryStore. Both expose
+    .add(messages=..., user_id=...) and a read method, so call sites below do
+    not need to care which one they received.
+    """
     if MEM0_API_KEY:
         try:
             from mem0 import MemoryClient
-            _memory_client = MemoryClient(api_key=MEM0_API_KEY)
+            client = MemoryClient(api_key=MEM0_API_KEY)
             print("Mem0 Cloud Memory initialized.")
-            return _memory_client
+            return client
         except Exception as e:
             print(f"Warning: Failed to init Mem0 Cloud Memory ({e}), falling back to local mode.")
 
-    # Local fallback open-source Mem0 / memory store
+    # Local fallback: open-source Mem0, else our own durable SQLite store.
     try:
         from mem0 import Memory
         config = {
@@ -60,41 +64,79 @@ def _get_memory_client():
                 }
             }
         }
-        _memory_client = Memory.from_config(config)
+        client = Memory.from_config(config)
         print("Mem0 Local Memory initialized.")
+        return client
     except Exception as e:
-        print(f"Mem0 local init notice: {e}. Using SQLite-backed memory fallback.")
-        _memory_client = "sqlite_fallback"
+        print(f"Mem0 local init notice: {e}. Using durable SQLite memory store.")
 
+    store = get_chat_store()
+    print("Durable SQLite chat memory store initialized.")
+    return store
+
+
+def _get_memory_client():
+    global _memory_client
+    if _memory_client is None:
+        _memory_client = _fresh_memory_client()
     return _memory_client
 
 
+def _is_usable(client) -> bool:
+    """A client is usable if it is a real client object with the mem0-ish API."""
+    if client is None or isinstance(client, str):
+        return False
+    return hasattr(client, "add") and (
+        hasattr(client, "search") or hasattr(client, "get_all")
+    )
+
+
+def _client_get_all(client, user_id: str):
+    """Read all memories, tolerating mem0 SDK API changes.
+
+    mem0 >= 2.x rejects top-level entity kwargs on get_all() and requires
+    filters={'user_id': ...}; older versions accepted user_id directly.
+    """
+    if hasattr(client, "get_all"):
+        try:
+            return client.get_all(user_id=user_id)
+        except TypeError:
+            return client.get_all(filters={"user_id": user_id})
+        except ValueError:
+            # mem0 2.2.0 raises ValueError for unsupported top-level entities.
+            return client.get_all(filters={"user_id": user_id})
+    return client.search(query="memory", user_id=user_id)
+
+
 def get_user_memories(session_id: str) -> list[str]:
-    """Retrieve remembered facts for this session_id from Mem0."""
+    """Retrieve remembered facts for this session_id from Mem0 or the SQLite store."""
     client = _get_memory_client()
-    if not client or client == "sqlite_fallback":
+    if not _is_usable(client):
         return []
 
     try:
-        if hasattr(client, "search"): # Local Mem0
-            res = client.search(query="coding mistakes habits preferences", user_id=session_id)
-            if isinstance(res, dict) and "results" in res:
-                return [m.get("memory", "") for m in res["results"] if m.get("memory")]
-            elif isinstance(res, list):
-                return [m.get("memory", "") if isinstance(m, dict) else str(m) for m in res]
-        elif hasattr(client, "get_all"): # Mem0 Cloud MemoryClient
-            res = client.get_all(user_id=session_id)
-            if isinstance(res, list):
-                return [m.get("memory", "") if isinstance(m, dict) else str(m) for m in res]
+        res = _client_get_all(client, session_id)
+        if isinstance(res, dict) and "results" in res:
+            res = res["results"]
+        if isinstance(res, list):
+            out = []
+            for m in res:
+                if isinstance(m, dict):
+                    text = m.get("memory") or m.get("text") or m.get("content")
+                else:
+                    text = str(m)
+                if text:
+                    out.append(text)
+            return out
     except Exception as err:
         print(f"Mem0 fetch error: {err}")
     return []
 
 
 def add_user_memory(session_id: str, text: str):
-    """Store new coding insights/habits into Mem0 for this session_id."""
+    """Store a new insight/habit/message for this session_id."""
     client = _get_memory_client()
-    if not client or client == "sqlite_fallback":
+    if not _is_usable(client):
         return
 
     try:

@@ -78,6 +78,16 @@ export const fetchMemories = async (token) => {
   return res.json();
 };
 
+export const saveMemory = async (token, { conversations = [] } = {}) => {
+  const res = await fetch(`${API_BASE}/chat/memory`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ conversations }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+};
+
 export const fetchMemoryGraph = async (token) => {
   const res = await fetch(`${API_BASE}/chat/graph`, {
     headers: authHeaders(token),

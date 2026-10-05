@@ -22,7 +22,12 @@ from auth import (
     create_access_token,
     get_current_user,
 )
-from zen_chat import chat_with_zen, list_user_memories, build_memory_graph
+from zen_chat import (
+    chat_with_zen,
+    list_user_memories,
+    build_memory_graph,
+    save_user_memories,
+)
 from codebase.scanner import scan_project
 from codebase.model import CodebaseModel
 from terminal.executor import execute_command
@@ -96,6 +101,10 @@ class ChatRequest(BaseModel):
     history: list[dict] = []
 
 
+class SaveMemoryRequest(BaseModel):
+    conversations: list[str] = []
+
+
 def _user_public(user: User) -> dict:
     return {
         "id": user.id,
@@ -159,6 +168,19 @@ async def zen_chat(req: ChatRequest, current_user: User = Depends(get_current_us
 async def zen_memories(current_user: User = Depends(get_current_user)):
     memories = list_user_memories(str(current_user.id))
     return {"memories": memories, "total": len(memories)}
+
+
+@app.post("/chat/memory")
+async def zen_save_memory(
+    req: SaveMemoryRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Persist conversation text into the user's long-term memory."""
+    try:
+        result = save_user_memories(str(current_user.id), req.conversations)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return result
 
 
 @app.get("/chat/graph")

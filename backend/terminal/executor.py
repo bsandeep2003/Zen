@@ -6,13 +6,43 @@ goes through here, producing a CommandResult that feeds back into
 the debugging loop.
 """
 import asyncio
-import time
-import shlex
+import os
+import signal
+import subprocess
 import sys
+import time
 from datetime import datetime
 from typing import Optional
 
 from terminal.model import CommandResult, ExecutionModel
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Terminate a shell and its children so pipes are released promptly."""
+    if proc.poll() is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            # `taskkill /T` is the only way to reach grandchildren via cmd.exe,
+            # but it is slow and may be unavailable in confined environments, so
+            # it gets a short budget and a fallback.
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=3,
+                )
+            except Exception:
+                pass
+            if proc.poll() is None:
+                proc.kill()
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 class TerminalExecutor:
@@ -53,50 +83,59 @@ class TerminalExecutor:
         start = time.perf_counter()
 
         try:
-            # Use shell=True on Windows for proper command resolution
-            is_win = sys.platform == "win32"
-            if is_win:
-                process = await asyncio.create_subprocess_shell(
+            # Run via subprocess in a worker thread instead of
+            # asyncio.create_subprocess_shell. The asyncio variant needs an
+            # event-loop pipe (ProactorEventLoop on Windows), which is blocked
+            # under confined/sandboxed execution and fails with WinError 5 —
+            # breaking both observation and verification. A thread keeps the
+            # async interface while using plain, dependable stdio capture.
+            def _run() -> CommandResult:
+                kwargs = {}
+                if sys.platform == "win32":
+                    kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                else:
+                    kwargs["start_new_session"] = True
+
+                proc = subprocess.Popen(
                     command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    shell=True,
                     cwd=work_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     env=env,
+                    **kwargs,
                 )
-            else:
-                process = await asyncio.create_subprocess_shell(
-                    command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                self._active_processes[proc.pid] = proc
+                try:
+                    stdout_b, stderr_b = proc.communicate(timeout=timeout)
+                    rc, timed_out = proc.returncode, False
+                except subprocess.TimeoutExpired:
+                    # Kill the whole tree: killing just the shell leaves the
+                    # real child running and holding the pipes open.
+                    _kill_tree(proc)
+                    stdout_b, stderr_b = b"", b""
+                    try:
+                        stdout_b, stderr_b = proc.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    rc, timed_out = 124, True
+                finally:
+                    self._active_processes.pop(proc.pid, None)
+
+                return CommandResult(
+                    command=command,
                     cwd=work_dir,
-                    env=env,
+                    stdout=(stdout_b or b"").decode("utf-8", errors="replace"),
+                    stderr=(stderr_b or b"").decode("utf-8", errors="replace"),
+                    exit_code=rc,
+                    pid=proc.pid,
+                    duration_ms=(time.perf_counter() - start) * 1000,
+                    timestamp=datetime.now(),
+                    timed_out=timed_out,
                 )
 
-            self._active_processes[process.pid] = process
-
-            timed_out = False
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout
-                )
-            except asyncio.TimeoutError:
-                timed_out = True
-                process.kill()
-                stdout_bytes, stderr_bytes = await process.communicate()
-
-            elapsed = (time.perf_counter() - start) * 1000  # ms
-
-            result = CommandResult(
-                command=command,
-                cwd=work_dir,
-                stdout=stdout_bytes.decode("utf-8", errors="replace"),
-                stderr=stderr_bytes.decode("utf-8", errors="replace"),
-                exit_code=process.returncode or 0,
-                pid=process.pid,
-                duration_ms=elapsed,
-                timestamp=datetime.now(),
-                timed_out=timed_out,
-            )
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, _run)
 
         except FileNotFoundError:
             elapsed = (time.perf_counter() - start) * 1000
@@ -118,10 +157,6 @@ class TerminalExecutor:
                 duration_ms=elapsed,
                 timestamp=datetime.now(),
             )
-        finally:
-            # Clean up process tracking
-            if "process" in dir() and hasattr(process, "pid"):
-                self._active_processes.pop(process.pid, None)
 
         self.model.record(result)
         return result

@@ -87,6 +87,8 @@ def _run_git(args: List[str], cwd: Path) -> Optional[str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5,
             check=False,
         )

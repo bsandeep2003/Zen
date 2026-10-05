@@ -79,6 +79,46 @@ def wait_for_server(url: str, timeout: int = 30) -> bool:
     return False
 
 
+def is_zen_backend(port: int) -> bool:
+    """Check that whatever listens on `port` is actually the Zen API.
+
+    Port 8000 being busy is not proof a compatible Zen backend is there — it
+    could be any other service. Probing the identity endpoint avoids sending
+    debug requests to an unrelated server.
+    """
+    try:
+        r = httpx.get(f"http://127.0.0.1:{port}/", timeout=3)
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        return isinstance(data, dict) and data.get("app", "").startswith("Zen")
+    except Exception:
+        return False
+
+
+def wait_for_zen_backend(port: int, timeout: int = 40) -> bool:
+    """Wait for a genuine Zen backend to answer on `port`."""
+    start = time.time()
+    while time.time() - start < timeout:
+        if is_zen_backend(port):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def wait_for_http(url: str, timeout: int = 60) -> bool:
+    """Wait for any 2xx/3xx response from a URL."""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            if httpx.get(url, timeout=3).status_code < 400:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
 def save_last_command(project_path: str, command: str):
     """Save the last debug command in .zen/ for `zen proceed`."""
     zen_dir = Path(project_path) / ZEN_LOCAL_DIR
@@ -96,6 +136,18 @@ def load_last_command(project_path: str) -> str:
         try:
             data = json.loads(last_cmd_path.read_text(encoding="utf-8"))
             return data.get("command", "")
+        except Exception:
+            pass
+    return ""
+
+
+def load_last_command_project(project_path: str) -> str:
+    """Load the project directory the last command was recorded against."""
+    last_cmd_path = Path(project_path) / ZEN_LOCAL_DIR / LAST_COMMAND_FILE
+    if last_cmd_path.exists():
+        try:
+            data = json.loads(last_cmd_path.read_text(encoding="utf-8"))
+            return data.get("project_path", "")
         except Exception:
             pass
     return ""
@@ -154,11 +206,14 @@ def cmd_fix(args):
     backend_port = 8000
     frontend_port = 3000
 
-    if is_port_in_use(backend_port):
+    if is_zen_backend(backend_port):
         print_step("✅", f"Backend active on port {backend_port}")
     else:
+        if is_port_in_use(backend_port):
+            # Someone else owns 8000 — don't hijack it, pick a free port.
+            print_step("⚠️ ", f"Port {backend_port} is in use by another service; using a free port")
+            backend_port = find_available_port(8001)
         print_step("🚀", "Starting Zen backend server...")
-        backend_port = find_available_port(8000)
         env = os.environ.copy()
         subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "main:app", "--port", str(backend_port), "--host", "127.0.0.1"],
@@ -168,25 +223,33 @@ def cmd_fix(args):
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
-        if wait_for_server(f"http://127.0.0.1:{backend_port}/health"):
+        if wait_for_zen_backend(backend_port):
             print_step("✅", f"Backend ready on port {backend_port}")
         else:
-            print_step("❌", "Backend failed to start. Check backend/.env for API key configuration.")
+            print_step("❌", f"No Zen backend responded on port {backend_port}.")
+            print_step("💡", "Check backend/.env for API key configuration, then retry.")
             sys.exit(1)
 
     if is_port_in_use(frontend_port):
         print_step("✅", f"Frontend active on port {frontend_port}")
     else:
         print_step("🚀", "Starting Zen frontend...")
+        # `serve` is not a local dependency, so npx may need to fetch it. Send
+        # output to a log rather than DEVNULL so failures are diagnosable.
+        frontend_log = open(BACKEND_DIR / "frontend_serve.log", "wb")
         subprocess.Popen(
             ["npx", "serve", "-s", "build", "-l", str(frontend_port)],
             cwd=str(FRONTEND_DIR),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=frontend_log,
+            stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             shell=True,
         )
-        time.sleep(2)
+        if wait_for_http(f"http://127.0.0.1:{frontend_port}/", timeout=60):
+            print_step("✅", f"Frontend ready on port {frontend_port}")
+        else:
+            print_step("⚠️ ", "Frontend did not come up in time — continuing without the dashboard.")
+            print_step("💡", "Run `npm run build` in frontend/, or use `npm start` on port 3000.")
     # Send debug command to backend API
     print()
     print_step("⚡", "Starting autonomous debugging session...")
@@ -202,8 +265,22 @@ def cmd_fix(args):
             },
             timeout=10,
         )
-        data = r.json()
-        session_id = data.get("session_id", "unknown")
+        if r.status_code != 200:
+            print_step("❌", f"Backend rejected the session (HTTP {r.status_code}).")
+            print_step("💡", f"{r.text[:300]}")
+            sys.exit(1)
+
+        try:
+            data = r.json()
+        except Exception:
+            print_step("❌", "Backend returned a non-JSON response:")
+            print_step("💡", f"{r.text[:300]}")
+            sys.exit(1)
+
+        session_id = data.get("session_id")
+        if not session_id:
+            print_step("❌", f"Backend did not return a session id: {str(data)[:200]}")
+            sys.exit(1)
         print_step("🧠", f"Session ID: \033[1;32m{session_id}\033[0m")
 
         # Open browser with session ID and encoded parameters (including backend port for WebSocket)
@@ -226,10 +303,29 @@ def cmd_fix(args):
 
         # Poll session status with live terminal feedback
         last_state = ""
+        started = time.time()
+        consecutive_errors = 0
+        # Generous ceiling: an agent run makes several LLM calls. Without a
+        # bound, a missing/bad session id would poll forever in silence.
+        max_wait = 30 * 60
+
         while True:
+            if time.time() - started > max_wait:
+                print_step("⚠️ ", f"Gave up after {max_wait // 60} minutes. Check the dashboard.")
+                sys.exit(1)
+
             time.sleep(1.2)
             try:
                 sr = httpx.get(f"http://127.0.0.1:{backend_port}/agent/session/{session_id}", timeout=5)
+                if sr.status_code != 200:
+                    consecutive_errors += 1
+                    if consecutive_errors == 3:
+                        print_step("❌", f"Session lookup failed (HTTP {sr.status_code}: {sr.text[:120]})")
+                    if consecutive_errors >= 10:
+                        sys.exit(1)
+                    continue
+
+                consecutive_errors = 0
                 sdata = sr.json()
                 status = sdata.get("status", "running")
                 attempts = sdata.get("attempts", [])
@@ -257,34 +353,90 @@ def cmd_fix(args):
                     print(f"  \033[1;32m  🎉 SUCCESS! Bug fixed & verified in {len(attempts)} attempt(s).\033[0m")
                     if attempts and attempts[-1].get("stdout"):
                         print(f"  \033[1;32m  Output: {attempts[-1]['stdout'].strip()}\033[0m")
-                    print(f"  \033[1;32m  Fix saved to .zen/memory.json for future runs.\033[0m")
+                    print(f"  \033[1;32m  Fix saved to .zen/fixes.json for future runs.\033[0m")
                     print(f"  \033[1;32m══════════════════════════════════════════════════\033[0m")
                     print()
-                    return
+                    return 0
                 elif status in ("failed", "escalated"):
                     print()
                     print(f"  \033[1;31m══════════════════════════════════════════════════\033[0m")
-                    print(f"  \033[1;31m  ⚠️ Agent stopped: Status '{status}'. Check dashboard.\033[0m")
+                    print(f"  \033[1;31m  ⚠️  Agent stopped: Status '{status}'.\033[0m")
+                    if status == "escalated":
+                        print(f"  \033[1;31m  It could not verify a fix — reverted to the original code.\033[0m")
                     print(f"  \033[1;31m══════════════════════════════════════════════════\033[0m")
                     print()
-                    return
+                    return 1
 
-            except httpx.RequestError:
-                pass
+            except httpx.RequestError as e:
+                consecutive_errors += 1
+                if consecutive_errors == 3:
+                    print_step("⚠️ ", f"Lost contact with backend: {e}")
+                if consecutive_errors >= 10:
+                    print_step("❌", "Backend unreachable. Stopping.")
+                    sys.exit(1)
 
     except KeyboardInterrupt:
         print()
         print_step("🛑", "Stopped by user.")
         print()
+        sys.exit(130)
+    except SystemExit:
+        raise
     except Exception as e:
         print_step("❌", f"Failed: {e}")
         sys.exit(1)
 
+    return 0
+
+
+def find_project_zen_dir(project_path: str, max_levels: int = 6) -> str:
+    """Nearest ancestor (including cwd) that has a .zen/ memory directory."""
+    current = Path(project_path).resolve()
+    for _ in range(max_levels):
+        if (current / ZEN_LOCAL_DIR).is_dir():
+            return str(current)
+        if current.parent == current:
+            break
+        current = current.parent
+    return ""
+
 
 def cmd_proceed(args):
     """Handle `zen proceed` — re-run the last failed command."""
-    project_path = os.getcwd()
+    cwd = os.getcwd()
+
+    # The recorded command lives inside the project's .zen/ directory, and that
+    # file is what names the project — so it cannot be used to find the project.
+    # Resolve from --project, else the nearest .zen/ at or above the cwd.
+    project_path = ""
+    explicit = getattr(args, "project", None)
+    if explicit:
+        if (Path(explicit) / ZEN_LOCAL_DIR).is_dir():
+            project_path = str(Path(explicit).resolve())
+        else:
+            print_banner()
+            print_step("❌", f"No {ZEN_LOCAL_DIR}/ memory found in {explicit}")
+            sys.exit(1)
+    else:
+        project_path = find_project_zen_dir(cwd)
+
+    if not project_path:
+        print_banner()
+        print_step("❌", "No previous command found. Use `zen fix \"<command>\"` first.")
+        print_step("💡", "Or target a project: `zen proceed --project <dir>`")
+        sys.exit(1)
+
     last_cmd = load_last_command(project_path)
+
+    # Fall back to the directory recorded inside the file, in case the memory
+    # was written against a different path than where it now lives.
+    if not last_cmd:
+        recorded = load_last_command_project(project_path)
+        if recorded and Path(recorded).is_dir():
+            candidate_cmd = load_last_command(recorded)
+            if candidate_cmd:
+                last_cmd = candidate_cmd
+                project_path = recorded
 
     if not last_cmd:
         print_banner()
@@ -292,10 +444,13 @@ def cmd_proceed(args):
         sys.exit(1)
 
     print_banner()
+    if Path(project_path).resolve() != Path(cwd).resolve():
+        print_step("📂", f"Using saved project: \033[1m{project_path}\033[0m")
     print_step("🔄", f"Re-running last command: \033[1m{last_cmd}\033[0m")
-    # Reuse fix logic
+    # Reuse fix logic, pinned to the project the command was recorded against.
     args.command = last_cmd
-    cmd_fix(args)
+    args.project = project_path
+    return cmd_fix(args)
 
 
 def cmd_status(args):
@@ -372,9 +527,21 @@ def main():
     # zen fix "<command>"
     fix_parser = subparsers.add_parser("fix", help="Debug a failing command")
     fix_parser.add_argument("command", type=str, help="The failing command to debug (e.g., 'python main.py')")
+    fix_parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Project directory to debug (defaults to the current directory)",
+    )
 
     # zen proceed
-    subparsers.add_parser("proceed", help="Re-run the last failed command from .zen/ memory")
+    proceed_parser = subparsers.add_parser("proceed", help="Re-run the last failed command from .zen/ memory")
+    proceed_parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Project directory holding the .zen/ memory (defaults to the nearest one above cwd)",
+    )
 
     # zen status
     subparsers.add_parser("status", help="Show .zen/ memory summary for current project")
@@ -384,10 +551,11 @@ def main():
 
     args = parser.parse_args()
 
+    # Propagate the command's exit status so scripts/CI can detect failures.
     if args.subcommand == "fix":
-        cmd_fix(args)
+        sys.exit(cmd_fix(args) or 0)
     elif args.subcommand == "proceed":
-        cmd_proceed(args)
+        sys.exit(cmd_proceed(args) or 0)
     elif args.subcommand == "status":
         cmd_status(args)
     elif args.subcommand == "forget":

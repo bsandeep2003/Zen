@@ -4,9 +4,50 @@ const AppStateContext = createContext(null);
 
 const STORAGE_KEY = "zen_app_state";
 
+const buildMemoryGraph = (messages = []) => {
+  const nodes = [];
+  const edges = [];
+
+  messages.forEach((msg, index) => {
+    const text = (msg?.content || "").trim();
+    if (!text) return;
+
+    const nodeId = `msg-${index}`;
+    nodes.push({
+      id: nodeId,
+      kind: msg.role === "assistant" ? "fact" : "lesson",
+      text,
+    });
+
+    if (index > 0) {
+      const prev = messages[index - 1];
+      if (prev?.content) {
+        edges.push({
+          id: `edge-${index}`,
+          source: `msg-${index - 1}`,
+          target: nodeId,
+        });
+      }
+    }
+  });
+
+  return {
+    nodes,
+    edges,
+    memory_count: nodes.length,
+    connection_count: edges.length,
+  };
+};
+
 const defaultState = {
   chatMessages: [],
   chatInput: "",
+  memoryGraph: {
+    nodes: [],
+    edges: [],
+    memory_count: 0,
+    connection_count: 0,
+  },
   workspace: {
     projectPath: ".",
     codebase: null,
@@ -32,9 +73,12 @@ export function AppStateProvider({ children }) {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState;
       const parsed = JSON.parse(raw);
+      const chatMessages = Array.isArray(parsed.chatMessages) ? parsed.chatMessages : [];
       return {
         ...defaultState,
         ...parsed,
+        chatMessages,
+        memoryGraph: parsed.memoryGraph || buildMemoryGraph(chatMessages),
         workspace: { ...defaultState.workspace, ...(parsed.workspace || {}) },
       };
     } catch {
@@ -47,11 +91,19 @@ export function AppStateProvider({ children }) {
   }, [state]);
 
   const setChatMessages = useCallback((messages) => {
-    setState((prev) => ({ ...prev, chatMessages: messages }));
+    setState((prev) => ({
+      ...prev,
+      chatMessages: messages,
+      memoryGraph: buildMemoryGraph(messages),
+    }));
   }, []);
 
   const setChatInput = useCallback((value) => {
     setState((prev) => ({ ...prev, chatInput: value }));
+  }, []);
+
+  const setMemoryGraph = useCallback((graph) => {
+    setState((prev) => ({ ...prev, memoryGraph: graph }));
   }, []);
 
   const updateWorkspace = useCallback((patch) => {
@@ -76,10 +128,11 @@ export function AppStateProvider({ children }) {
       state,
       setChatMessages,
       setChatInput,
+      setMemoryGraph,
       updateWorkspace,
       resetWorkspace,
     }),
-    [state, setChatMessages, setChatInput, updateWorkspace, resetWorkspace]
+    [state, setChatMessages, setChatInput, setMemoryGraph, updateWorkspace, resetWorkspace]
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
